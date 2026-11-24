@@ -19098,9 +19098,29 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
+  // Song storage limit on the computer: kept by the server, which trims the cache (the phone app adds its own row)
+  const cacheLimitItem = document.getElementById('desktop-cache-limit-item');
+  if (cacheLimitItem && isPhoneApp) cacheLimitItem.remove();
+  const showCacheLimit = (mb) => cacheLimitItem && cacheLimitItem.querySelectorAll('[data-cache-limit]').forEach((b) => b.classList.toggle('active', Number(b.dataset.cacheLimit) === mb));
+  if (cacheLimitItem && !isPhoneApp) {
+    cacheLimitItem.querySelectorAll('[data-cache-limit]').forEach((b) => b.addEventListener('click', async () => {
+      showCacheLimit(Number(b.dataset.cacheLimit));
+      try {
+        const res = await fetch(`http://127.0.0.1:${state.serverPort}/api/cache-limit?mb=${b.dataset.cacheLimit}`, { method: 'POST' });
+        const data = await res.json();
+        if (data && data.success) showCacheLimit(data.mb);
+      } catch (e) {}
+      // a lower limit trims the cache at once
+      updateOfflineStorageUI();
+    }));
+  }
+
   async function updateOfflineStorageUI() {
     const elSize = document.getElementById('offline-library-size');
     if (!elSize) return;
+    if (cacheLimitItem && !isPhoneApp && state.serverPort) {
+      fetch(`http://127.0.0.1:${state.serverPort}/api/cache-limit`).then((r) => r.json()).then((d) => { if (d && d.success) showCacheLimit(d.mb); }).catch(() => {});
+    }
     try {
       const res = await fetch(`http://127.0.0.1:${state.serverPort}/api/offline-library`);
       const data = await res.json();
