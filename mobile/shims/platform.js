@@ -28,5 +28,7 @@ module.exports = {
   readStartupConfig: () => ({}), writeStartupConfig: () => true,
   readConfig: () => ({}), resolveDataDir: () => DATA_DIR, setDataDir: noop,
   resolveDownloadDir: () => DOWNLOADS_DIR, setDownloadDir: noop,
+  // the phone app trims its own cache (mobile/cache-limit.js)
+  resolveCacheLimitMb: () => 0, setCacheLimitMb: () => 0,
   copyDirContents: noop, removeDirContents: noop,
 };

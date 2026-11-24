@@ -71,6 +71,22 @@ function setDownloadDir(dir) {
   return cfg.downloadDir || null;
 }
 
+// the song storage limit on the computer, in MB (0: no limit, the default); the server trims the cache
+// itself, so it lives here and not in the app's localStorage (the phone app keeps its own)
+function resolveCacheLimitMb() {
+  const mb = parseInt(readConfig().cacheLimitMb, 10);
+  return Number.isFinite(mb) && mb > 0 ? mb : 0;
+}
+
+function setCacheLimitMb(mb) {
+  const cfg = readConfig();
+  const n = parseInt(mb, 10);
+  if (Number.isFinite(n) && n > 0) cfg.cacheLimitMb = n;
+  else delete cfg.cacheLimitMb;
+  writeConfig(cfg);
+  return cfg.cacheLimitMb || 0;
+}
+
 const DATA_DIR = resolveDataDir();
 
 const CACHE_DIR = path.join(DATA_DIR, 'tracks');
@@ -198,5 +214,6 @@ module.exports = {
   findInPath, resolveBinary, ytDlpCommand,
   tutorialDone, markTutorialDone,
   readStartupConfig, writeStartupConfig,
-  readConfig, resolveDataDir, setDataDir, resolveDownloadDir, setDownloadDir, copyDirContents, removeDirContents, MURIEL_DATA_ENTRIES
+  readConfig, resolveDataDir, setDataDir, resolveDownloadDir, setDownloadDir, copyDirContents, removeDirContents, MURIEL_DATA_ENTRIES,
+  resolveCacheLimitMb, setCacheLimitMb
 };

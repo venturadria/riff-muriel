@@ -1737,6 +1737,21 @@
                 <button class="btn-outline-pill" id="btn-clear-offline" style="padding: 6px 14px; font-size: calc(12px * var(--font-scale, 1));">Clear</button>
               </div>
             </div>
+            <div class="setting-item" id="desktop-cache-limit-item">
+              <div class="setting-item-top" style="align-items: center;">
+                <div style="display: flex; flex-direction: column; gap: 2px;">
+                  <span class="setting-name">Song storage limit</span>
+                  <span style="font-size: calc(12px * var(--font-scale, 1)); color: var(--md-sys-color-outline);">Songs you play are kept for offline use. Over this limit, the ones played longest ago are removed.</span>
+                </div>
+              </div>
+              <div class="theme-mode-toggle" style="margin-top: 10px;">
+                <button class="fps-cap-btn active" data-cache-limit="0">Off</button>
+                <button class="fps-cap-btn" data-cache-limit="1024">1 GB</button>
+                <button class="fps-cap-btn" data-cache-limit="2048">2 GB</button>
+                <button class="fps-cap-btn" data-cache-limit="5120">5 GB</button>
+                <button class="fps-cap-btn" data-cache-limit="10240">10 GB</button>
+              </div>
+            </div>
             <div class="setting-item" id="recover-downloads-item">
               <div class="setting-item-top" style="align-items: center; justify-content: space-between;">
                 <div style="display: flex; flex-direction: column;">

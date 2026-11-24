@@ -10,7 +10,7 @@ const dns = require('dns');
 const net = require('net');
 
 const PORT = 38472;
-const { DATA_DIR, CACHE_DIR, CUSTOM_LYRICS_DIR, LYRICS_DIR, THUMBNAILS_DIR, METADATA_PATH, LIBRARY_DIR, LIBRARY_PATH, ytDlpCommand, resolveDownloadDir, resolveBinary } = require('./platform');
+const { DATA_DIR, CACHE_DIR, CUSTOM_LYRICS_DIR, LYRICS_DIR, THUMBNAILS_DIR, METADATA_PATH, LIBRARY_DIR, LIBRARY_PATH, ytDlpCommand, resolveDownloadDir, resolveBinary, resolveCacheLimitMb, setCacheLimitMb } = require('./platform');
 // iOS can't hand a cross-origin stream to Web Audio, so it plays everything from the disk cache.
 const STREAM_VIA_CACHE = !!require('./platform').STREAM_VIA_CACHE;
 const logger = require('./logger');
@@ -22,6 +22,7 @@ const { createTaskQueue, lowerPriority } = require('./ytdlp-queue');
 const { searchSoundcloudApi } = require('./soundcloud-search');
 const { copyStreamToCache } = require('./cache-copy');
 const streamSource = require('./stream-source');
+const { pickRemovals } = require('./cache-limit-core');
 const ytFast = require('./yt-fast');
 // request headers yt-dlp would use for each media URL it resolved (#17), for the audio proxy
 const streamHeaders = new Map();
@@ -1664,6 +1665,38 @@ async function cacheThumbnailToDisk(cleanId, thumbnailUrl) {
   return null;
 }
 
+// Settings > Song storage limit on the computer (off unless chosen): after each download, the cached songs
+// used longest ago are deleted (findCachedFile touches a song's file each time it plays). The phone app
+// trims its own cache (mobile/cache-limit.js) with the same rule (cache-limit-core.js).
+let cacheTrimming = null;
+function enforceCacheLimit() {
+  if (STREAM_VIA_CACHE) return Promise.resolve();
+  if (!cacheTrimming) cacheTrimming = trimCacheToLimit().catch(() => {}).finally(() => { cacheTrimming = null; });
+  return cacheTrimming;
+}
+async function trimCacheToLimit() {
+  const mb = resolveCacheLimitMb();
+  if (!(mb > 0)) return;
+  const files = [];
+  for (const name of await fs.promises.readdir(CACHE_DIR)) {
+    const temp = name.includes('.temp.');
+    if (!temp && !/\.(opus|webm|m4a|mp3|aac)$/i.test(name)) continue;
+    try {
+      const st = await fs.promises.stat(path.join(CACHE_DIR, name));
+      files.push({ name, id: name.replace(/(\.temp)?\.[^.]+$/, ''), size: st.size, used: st.mtimeMs, temp });
+    } catch (e) {}
+  }
+  const { remove, total } = pickRemovals(files, mb * 1024 * 1024);
+  if (!remove.length) return;
+  for (const f of remove) {
+    try { await fs.promises.unlink(path.join(CACHE_DIR, f.name)); } catch (e) { continue; }
+    try { await fs.promises.unlink(path.join(THUMBNAILS_DIR, `${f.id}.jpg`)); } catch (e) {}
+    delete trackMetadataIndex[f.id];
+  }
+  try { writeJsonFile(METADATA_PATH, trackMetadataIndex); } catch (e) {}
+  try { logger.log('info', `cache trimmed to ${Math.round(total / 1048576)} MB (limit ${mb} MB, ${remove.length} songs removed)`); } catch (e) {}
+}
+
 // priority: 'play' when the listener is waiting for this song (phones play from the cache), otherwise
 // 'background' (caching a song that already plays, or the next one); a background download that failed
 // isn't tried again until its backoff has passed
@@ -1732,6 +1765,7 @@ async function downloadTrackToDisk(trackUrl, trackId, platform, meta = {}, prior
       const stat = await fs.promises.stat(tempPath);
       await fs.promises.rename(tempPath, path.join(CACHE_DIR, `${cleanId}.opus`));
       saveTrackMetadata(cleanId, { id: trackId, title: meta.title || '', artist: meta.artist || '', duration: meta.duration || 0, thumbnail: meta.thumbnail || '', platform: platform || 'youtube', fileSize: stat.size });
+      enforceCacheLimit();
     } catch (e) { return false; }
     if (downloadProcs.get(cleanId) === placeholder) downloadProcs.delete(cleanId);
     return true;
@@ -1761,6 +1795,7 @@ async function downloadTrackToDisk(trackUrl, trackId, platform, meta = {}, prior
               platform: platform || 'youtube',
               fileSize: stat.size
             });
+            enforceCacheLimit();
           } else {
             try { await fs.promises.unlink(found); } catch (e) {}
           }
@@ -6920,6 +6955,16 @@ const server = http.createServer(guardHandler(async (req, res) => {
     const meta = trackMetadataIndex[cleanId] || {};
     res.writeHead(200, { 'Content-Type': 'application/json' });
     return res.end(JSON.stringify({ success: true, analysis: meta.analysis || null }));
+  }
+
+  // Settings > Song storage limit on the computer: GET reads it, POST ?mb= sets it (0: no limit) and trims now
+  if (parsedUrl.pathname === '/api/cache-limit') {
+    if (req.method === 'POST') {
+      setCacheLimitMb(parsedUrl.query.mb);
+      await enforceCacheLimit();
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify({ success: true, mb: resolveCacheLimitMb() }));
   }
 
   if (parsedUrl.pathname === '/api/offline-delete' && req.method === 'POST') {
