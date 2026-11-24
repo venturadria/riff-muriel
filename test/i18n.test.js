@@ -168,8 +168,9 @@ test('translates many strings in one request and keeps them on disk', async () =
 test('two requests for the same strings translate them once', async () => {
   const before = asked.length;
   const texts = ['Shuffle', 'Repeat', 'Sleep timer'];
-  const [a, b] = await Promise.all([batch('es', texts), batch('es', texts)]);
-  assert.deepEqual(a.json.translations, ['es:SHUFFLE', 'es:REPEAT', 'es:SLEEP TIMER']);
+  // not 'es': Spanish has reviewed words (i18n-reviewed/es.json) that are never sent
+  const [a, b] = await Promise.all([batch('sv', texts), batch('sv', texts)]);
+  assert.deepEqual(a.json.translations, ['sv:SHUFFLE', 'sv:REPEAT', 'sv:SLEEP TIMER']);
   assert.deepEqual(b.json.translations, a.json.translations);
   assert.equal(asked.length - before, 1);
 });

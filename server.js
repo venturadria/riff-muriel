@@ -5108,6 +5108,9 @@ const I18N_MAX_LEN = 500; // per string
 const I18N_MAX_ENTRIES = 20000; // per language
 const i18nDicts = new Map(); // lang -> { dict, size }
 const i18nInFlight = new Map(); // lang + '\n' + text -> Promise, so two requests never translate the same string twice
+// translations reviewed by hand (i18n-reviewed/<lang>.json) win over the machine's and are never asked for:
+// the service gets the strings without context ('Opus' -> 'obra', 'Shuffle' -> 'barajar', 'Banner' -> 'pancarta')
+const I18N_REVIEWED = { es: require('./i18n-reviewed/es.json') };
 
 function i18nDict(lang) {
   let d = i18nDicts.get(lang);
@@ -5120,6 +5123,7 @@ function i18nDict(lang) {
       for (const [k, v] of Object.entries(saved)) if (typeof v === 'string' && v && !v.includes('\uFFFD')) dict[k] = v;
     }
   } catch (e) {}
+  if (Object.prototype.hasOwnProperty.call(I18N_REVIEWED, lang)) Object.assign(dict, I18N_REVIEWED[lang]);
   d = { dict, size: Object.keys(dict).length };
   i18nDicts.set(lang, d);
   return d;
