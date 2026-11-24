@@ -2256,6 +2256,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   function resetLevelWatcher() { levelAvgDb = -120; if (audioEngine && audioEngine.setNormalizeGainDb) audioEngine.setNormalizeGainDb(0); }
   // the phone app has no Web Audio graph (see mobile-ui.js), so nothing to measure there
   const isPhoneApp = document.documentElement.classList.contains('is-mobile');
+  // Settings > Play from download (off by default): the computer downloads each song and plays the file,
+  // as phones do, instead of streaming it; YouTube often refuses its stream to the computer (#51)
+  const playFromDownload = () => !isPhoneApp && localStorage.getItem('muriel_play_from_download') === 'true';
   // when to look up the next song: phones download it whole, so halfway through; the computer only needs
   // a stream URL (a few seconds of yt-dlp), so in the last 45 seconds (#16)
   function nextPrefetchDue(cur, dur) {
@@ -3951,7 +3954,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Looks the song up (/api/stream-info) and gives its stream to the audio element. Resolves false when
   // another song was started meanwhile; throws when there is nothing to play.
   async function attachStream(track, resolvedUrl, resolvedId, currentToken, signal, fresh) {
-    const streamInfoUrl = `http://127.0.0.1:${state.serverPort}/api/stream-info?url=${encodeURIComponent(resolvedUrl || '')}&id=${encodeURIComponent(resolvedId || '')}${fresh ? '&fresh=1' : ''}&platform=${track.platform || state.platform}&title=${encodeURIComponent(track.title || '')}&artist=${encodeURIComponent(track.artist || '')}&duration=${encodeURIComponent(track.duration || 0)}&thumbnail=${encodeURIComponent(track.thumbnail || '')}`;
+    const streamInfoUrl = `http://127.0.0.1:${state.serverPort}/api/stream-info?url=${encodeURIComponent(resolvedUrl || '')}&id=${encodeURIComponent(resolvedId || '')}${fresh ? '&fresh=1' : ''}${playFromDownload() ? '&cache=1' : ''}&platform=${track.platform || state.platform}&title=${encodeURIComponent(track.title || '')}&artist=${encodeURIComponent(track.artist || '')}&duration=${encodeURIComponent(track.duration || 0)}&thumbnail=${encodeURIComponent(track.thumbnail || '')}`;
     const res = await fetch(streamInfoUrl, { signal });
     const data = await res.json();
 
@@ -6836,7 +6839,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       const nextTrack = peekNextQueueTrack();
       if (!nextTrack || nextTrack.platform === 'local' || !(nextTrack.url || nextTrack.id)) return;
       const q = `url=${encodeURIComponent(nextTrack.url || '')}&id=${encodeURIComponent(nextTrack.id || '')}&platform=${nextTrack.platform || state.platform}&title=${encodeURIComponent(nextTrack.title || '')}&artist=${encodeURIComponent(nextTrack.artist || '')}&duration=${encodeURIComponent(nextTrack.duration || 0)}&thumbnail=${encodeURIComponent(nextTrack.thumbnail || '')}`;
-      fetch(`http://127.0.0.1:${state.serverPort}/api/${isPhoneApp ? 'stream-info' : 'prefetch'}?${q}&next=1`).catch(() => {});
+      fetch(`http://127.0.0.1:${state.serverPort}/api/${isPhoneApp ? 'stream-info' : 'prefetch'}?${q}&next=1${playFromDownload() ? '&cache=1' : ''}`).catch(() => {});
     }
 
     el.nativeAudio.addEventListener('playing', () => {
@@ -14067,6 +14070,17 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
   if (window.electronAPI && window.electronAPI.setMediaKeys) {
     window.electronAPI.setMediaKeys(savedWinMediaKeys);
+  }
+
+  // Play from download: read when each song starts (playFromDownload), so the switch only saves it
+  const btnPlayFromDownload = document.getElementById('btn-play-from-download');
+  if (btnPlayFromDownload) {
+    btnPlayFromDownload.classList.toggle('active', localStorage.getItem('muriel_play_from_download') === 'true');
+    btnPlayFromDownload.addEventListener('click', () => {
+      const next = !btnPlayFromDownload.classList.contains('active');
+      btnPlayFromDownload.classList.toggle('active', next);
+      localStorage.setItem('muriel_play_from_download', next ? 'true' : 'false');
+    });
   }
 
   if (window.electronAPI && window.electronAPI.onMediaCommand) {

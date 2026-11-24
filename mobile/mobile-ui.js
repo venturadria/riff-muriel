@@ -371,7 +371,7 @@
   }
 
   // settings that only make sense on desktop
-  ['btn-hw-accel', 'btn-tray-on-close', 'btn-media-keys'].forEach((id) => {
+  ['btn-hw-accel', 'btn-tray-on-close', 'btn-media-keys', 'btn-play-from-download'].forEach((id) => {
     const row = document.getElementById(id) && document.getElementById(id).closest('.setting-item');
     if (row) row.style.display = 'none';
   });
