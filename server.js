@@ -1790,7 +1790,8 @@ async function downloadTrackToDisk(trackUrl, trackId, platform, meta = {}, prior
 
 // priority 'normal' for the song that plays next (the app asks near the end of the current one, and it
 // should be ready in time), 'background' for guesses such as the top search result
-async function prefetchTrack(trackUrl, trackId, platform, meta = null, priority = 'background') {
+// viaCache: the computer asked to play from the download (Settings), as phones always do
+async function prefetchTrack(trackUrl, trackId, platform, meta = null, priority = 'background', viaCache = false) {
   let cleanId = cleanTrackId(trackId);
   if (!cleanId && trackUrl && trackUrl.includes('v=')) {
     cleanId = cleanTrackId(trackUrl.split('v=')[1].split('&')[0]);
@@ -1799,7 +1800,7 @@ async function prefetchTrack(trackUrl, trackId, platform, meta = null, priority 
   if (!cacheKey || prefetchingSet.size > 2) return;
   const isCached = (cleanId && await findCachedFile(cleanId)) || streamUrlCache.has(cacheKey) || (cleanId && streamUrlCache.has(cleanId));
   if (isCached || prefetchingSet.has(cacheKey)) return;
-  if (STREAM_VIA_CACHE) {
+  if (STREAM_VIA_CACHE || viaCache) {
     // only pre-download songs the app is about to play (it sends their metadata); skip speculative
     // search-result prefetches, which would cost a whole download on mobile data
     if (!cleanId || !meta || !meta.title) return;
@@ -2379,7 +2380,10 @@ async function alternativeUploads(cleanId, title, artist, duration) {
 }
 
 // fresh: the app could not play the URL it got last time (or the lookup failed): skip the remembered URL
-async function handleStreamInfo(req, res, trackUrl, trackId, platform = 'youtube', title = '', artist = '', duration = 0, thumbnail = '', fresh = false) {
+// viaCache: the computer plays the downloaded file instead of the stream (Settings > Play from download):
+// YouTube often refuses its stream to the computer (#51), and a failed stream cost 5 to 40 s per song
+async function handleStreamInfo(req, res, trackUrl, trackId, platform = 'youtube', title = '', artist = '', duration = 0, thumbnail = '', fresh = false, viaCache = false) {
+  const playFromCache = STREAM_VIA_CACHE || viaCache;
   let cleanId = cleanTrackId(trackId);
   if (!cleanId && trackUrl && trackUrl.includes('v=')) {
     cleanId = cleanTrackId(trackUrl.split('v=')[1].split('&')[0]);
@@ -2420,14 +2424,15 @@ async function handleStreamInfo(req, res, trackUrl, trackId, platform = 'youtube
       // someone else wants this song too: a skip by the first requester must not cancel the download
       cached.waiters = (cached.waiters || 0) + 1;
       joined = await cached.promise;
-      if (joined.success) {
+      if (joined.success && (!playFromCache || joined.isLocal)) {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         return res.end(JSON.stringify(joined));
       }
       // that lookup failed (or was cancelled): this request looks the song up itself instead of passing
       // the failure on, the way pressing Retry would
     }
-    if (joined || fresh) {
+    // a remembered stream URL is no use to a song that plays from its download
+    if (joined || fresh || playFromCache) {
       for (const k of [cacheKey, cleanId]) if (k && streamUrlCache.get(k) && !streamUrlCache.get(k).promise) streamUrlCache.delete(k);
     } else if (cached && (Date.now() - cached.timestamp < 1800000)) {
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -2445,7 +2450,7 @@ async function handleStreamInfo(req, res, trackUrl, trackId, platform = 'youtube
   const ytTarget = youtubeExtractTarget(trackUrl, cleanId, platform);
   trackUrl = ytTarget.url;
 
-  if (STREAM_VIA_CACHE) {
+  if (playFromCache) {
     // the app gave up on this song (the listener skipped on): stop downloading it, and don't start fallbacks
     let gone = false;
     req.on('close', () => {
@@ -6628,7 +6633,7 @@ const server = http.createServer(guardHandler(async (req, res) => {
     const trackId = parsedUrl.query.id || '';
     const platform = parsedUrl.query.platform || 'youtube';
     const q = parsedUrl.query;
-    prefetchTrack(trackUrl, trackId, platform, q.title ? { title: q.title, artist: q.artist || '', duration: Number(q.duration) || 0, thumbnail: q.thumbnail || '' } : null, q.next === '1' ? 'normal' : 'background');
+    prefetchTrack(trackUrl, trackId, platform, q.title ? { title: q.title, artist: q.artist || '', duration: Number(q.duration) || 0, thumbnail: q.thumbnail || '' } : null, q.next === '1' ? 'normal' : 'background', q.cache === '1');
     res.writeHead(200, { 'Content-Type': 'application/json' });
     return res.end(JSON.stringify({ success: true }));
   }
@@ -6692,7 +6697,7 @@ const server = http.createServer(guardHandler(async (req, res) => {
     const artist = parsedUrl.query.artist || '';
     const duration = parsedUrl.query.duration || 0;
     const thumbnail = parsedUrl.query.thumbnail || '';
-    return handleStreamInfo(req, res, trackUrl, trackId, platform, title, artist, duration, thumbnail, parsedUrl.query.fresh === '1');
+    return handleStreamInfo(req, res, trackUrl, trackId, platform, title, artist, duration, thumbnail, parsedUrl.query.fresh === '1', parsedUrl.query.cache === '1');
   }
 
   if (parsedUrl.pathname === '/api/local-track') {
