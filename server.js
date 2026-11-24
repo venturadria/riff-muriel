@@ -3384,7 +3384,9 @@ async function handleDownload(req, res, trackUrl, title, artist, format = 'mp3',
   const coverFormats = ['mp3', 'm4a', 'flac', 'opus', 'ogg'];
   const canCarryCover = !isRaw && coverFormats.includes(ext);
 
-  const args = [
+  // yt-dlp's arguments for one try. clients: YouTube's default and android clients (the first try);
+  // cover: embed the cover, for formats that can carry one
+  const downloadArgs = ({ clients, cover }) => [
     '--no-playlist',
     '--no-warnings',
     '-x',
@@ -3392,63 +3394,39 @@ async function handleDownload(req, res, trackUrl, title, artist, format = 'mp3',
     '--audio-quality', safeQuality,
     '--embed-metadata',
     '-o', tempTemplate,
-    '--extractor-args', 'youtube:player_client=default,android',
+    ...(clients ? ['--extractor-args', 'youtube:player_client=default,android'] : []),
+    ...(cover ? ['--embed-thumbnail', '--convert-thumbnails', 'jpg'] : []),
+    ...trimArgs,
+    '--', targetUrl,
   ];
-  if (canCarryCover) {
-    args.push('--embed-thumbnail', '--convert-thumbnails', 'jpg');
-  }
-  if (trimArgs.length) {
-    args.push(...trimArgs);
-  }
-  args.push('--', targetUrl);
+  // a cover that would not convert or embed ("Postprocessing: Conversion failed!", "No such file ... .jpg")
+  // failed the whole download, also on the fallback: that try runs again without the cover, and so do the later ones
+  const coverFailed = (e) => /thumbnail|Conversion failed|\.(jpe?g|webp|png)'/i.test(String((e && e.message) || ''));
+  const tries = [
+    { clients: true, cover: canCarryCover, reason: 'download' },
+    { clients: false, cover: canCarryCover, reason: 'download-fallback' },
+  ];
 
-  try {
-    await executeYtDlp(args, 180000, { onChild, reason: 'download' });
-    if (!isRaw) {
-      await cleanupDownloadArtifacts(downloadsDir, beforeFiles, baseName, videoId, ext, true);
-      downloadsIndex = null;
-    }
-    sendDownloadResponse(200, isRaw ? {
-      success: true,
-      tempName: tempName
-    } : {
-      success: true,
-      filename: outFilename,
-      directory: downloadsDir
-    });
-  } catch (err) {
-    try { logger.error('Download primary failed: ' + (title || trackUrl), err); } catch (_) {}
-    if (res.writableEnded) {
-      sendDownloadResponse(500, { success: false, error: err.message });
-      return;
-    }
-    if (abandoned()) {
-      await cleanupPartial();
-      return;
+  let lastErr = null;
+  for (let i = 0; i < tries.length; i++) {
+    const t = tries[i];
+    if (i > 0) {
+      if (res.writableEnded) {
+        sendDownloadResponse(500, { success: false, error: lastErr.message });
+        return;
+      }
+      if (abandoned()) {
+        await cleanupPartial();
+        return;
+      }
     }
     try {
-      const fallbackArgs = [
-        '--no-playlist',
-        '--no-warnings',
-        '-x',
-        '--audio-format', ext,
-        '--audio-quality', safeQuality,
-        '--embed-metadata',
-        '-o', tempTemplate,
-      ];
-      if (canCarryCover) {
-        fallbackArgs.push('--embed-thumbnail', '--convert-thumbnails', 'jpg');
-      }
-      if (trimArgs.length) {
-        fallbackArgs.push(...trimArgs);
-      }
-      fallbackArgs.push('--', targetUrl);
-
-      await executeYtDlp(fallbackArgs, 180000, { onChild, reason: 'download-fallback' });
+      await executeYtDlp(downloadArgs(t), 180000, { onChild, reason: t.reason });
       if (!isRaw) {
         await cleanupDownloadArtifacts(downloadsDir, beforeFiles, baseName, videoId, ext, true);
         downloadsIndex = null;
       }
+      if (canCarryCover && !t.cover) { try { logger.warn('Download saved without its cover: ' + (title || trackUrl)); } catch (_) {} }
       sendDownloadResponse(200, isRaw ? {
         success: true,
         tempName: tempName
@@ -3457,16 +3435,23 @@ async function handleDownload(req, res, trackUrl, title, artist, format = 'mp3',
         filename: outFilename,
         directory: downloadsDir
       });
-    } catch (e2) {
-      if (!isRaw) {
-        await cleanupDownloadArtifacts(downloadsDir, beforeFiles, baseName, videoId, ext, false);
-      } else {
-        await cleanupPartial();
+      return;
+    } catch (err) {
+      lastErr = err;
+      try { logger.error((i === 0 ? 'Download primary failed: ' : 'Download retry failed: ') + (title || trackUrl), err); } catch (_) {}
+      if (t.cover && coverFailed(err)) {
+        tries.splice(i + 1, 0, { ...t, cover: false, reason: `${t.reason}-nocover` });
+        for (const later of tries.slice(i + 2)) later.cover = false;
       }
-      try { logger.error('Download failure: ' + (title || trackUrl) + ' (' + (e2.message || err.message) + ')', e2); } catch (_) {}
-      sendDownloadResponse(500, { success: false, error: e2.message || err.message });
     }
   }
+  if (!isRaw) {
+    await cleanupDownloadArtifacts(downloadsDir, beforeFiles, baseName, videoId, ext, false);
+  } else {
+    await cleanupPartial();
+  }
+  try { logger.error('Download failure: ' + (title || trackUrl) + ' (' + lastErr.message + ')', lastErr); } catch (_) {}
+  sendDownloadResponse(500, { success: false, error: lastErr.message });
   } finally {
     if (downloadKey && downloadInFlight.get(downloadKey) === downloadPromise) {
       downloadInFlight.delete(downloadKey);
