@@ -4050,7 +4050,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
   function logPlaybackIssue(what, err) {
     const desc = err ? `${err.name || 'Error'}: ${err.message || String(err)}` : 'no details';
-    const line = `${what}: ${desc} | ${describeMediaState(el.nativeAudio)} | load=${state.loadToken}`;
+    // which song it was: a shared log full of "Audio element error" lines said nothing about which ones fail
+    const t = state.currentTrack;
+    const song = t ? ` | track="${String([t.artist, t.title].filter(Boolean).join(' - ') || '?').replace(/\s+/g, ' ').slice(0, 120)}" ${t.platform || '?'}:${t.id || '?'}` : '';
+    const line = `${what}: ${desc} | ${describeMediaState(el.nativeAudio)} | load=${state.loadToken}${song}`;
     console.warn(line);
     try { if (window.__riffLogError) window.__riffLogError('WARN', line, null); } catch (e) {}
     return line;
