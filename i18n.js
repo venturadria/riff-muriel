@@ -72,7 +72,14 @@
     if (typeof tr !== 'string') return null;
     const out = norm(tr.replace(/\{\s*(\d)\s*\}/g, '{$1}'));
     if (!out || out.length > src.length * 4 + 60) return null;
-    return slots(out) === slots(src) ? out : null;
+    return slots(out) === slots(src) ? keepCapital(src, out) : null;
+  }
+  // the translator gets many strings joined by newlines and often lowercases them ('Queue' -> 'cola'):
+  // when the English starts with a capital, so does the translation (only when both start with a letter)
+  function keepCapital(src, tr) {
+    const a = /\p{L}/u.exec(src), b = /\p{L}/u.exec(tr);
+    if (!a || !b || a.index || b.index || a[0] === a[0].toLowerCase() || b[0] !== b[0].toLowerCase() || b[0] === b[0].toUpperCase()) return tr;
+    return tr.slice(0, b.index) + b[0].toUpperCase() + tr.slice(b.index + 1);
   }
   // '{0} songs' + [12] -> '12 songs'; a missing argument leaves its slot empty
   const fill = (template, args) => String(template).replace(/\{(\d)\}/g, (_, i) => (args && args[i] != null ? String(args[i]) : ''));

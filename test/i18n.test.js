@@ -25,6 +25,14 @@ test('a translation must keep every placeholder', () => {
   assert.equal(I18n.pick('{0} songs', 'Lieder'), null);
   assert.equal(I18n.pick('Added {0} to {1}', '{1}: {0} hinzugefügt'), '{1}: {0} hinzugefügt');
   assert.equal(I18n.pick('Play', ''), null);
+  // keeps the English initial capital the translator dropped
+  assert.equal(I18n.pick('Queue', 'cola'), 'Cola');
+  assert.equal(I18n.pick('Delete all', 'eliminar todo'), 'Eliminar todo');
+  assert.equal(I18n.pick('{0} songs', '{0} canciones'), '{0} canciones');
+  assert.equal(I18n.pick('Added {0}', '{0} añadida'), '{0} añadida');
+  assert.equal(I18n.pick('Added {0}', 'añadido {0}'), 'Añadido {0}');
+  assert.equal(I18n.pick('songs', 'canciones'), 'canciones');
+  assert.equal(I18n.pick('Play', '再生'), '再生');
   assert.equal(I18n.pick('Play', null), null);
   assert.equal(I18n.pick('Play', 'x'.repeat(200)), null);
   assert.equal(I18n.fill('{0} songs in {1}', [12, 'Road trip']), '12 songs in Road trip');
