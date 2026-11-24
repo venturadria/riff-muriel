@@ -32,7 +32,9 @@
   const KEEP = new Set(['muriel', 'encore', 'youtube', 'youtube music', 'soundcloud', 'spotify', 'apple music', 'deezer', 'itunes',
     'last.fm', 'lrclib', 'musixmatch', 'genius', 'netease', 'google sans', 'sf pro', 'peerjs', 'yt-dlp', 'ffmpeg', 'github',
     'android', 'ios', 'iphone', 'windows', 'macos', 'linux', 'electron', 'material 3', 'material you', 'riff', 'muriel encore',
-    'rootscripts', 'cloverscripts', 'ctrl', 'shift', 'alt', 'esc', 'cmd', 'tab', 'enter']);
+    'rootscripts', 'cloverscripts', 'ctrl', 'shift', 'alt', 'esc', 'cmd', 'tab', 'enter',
+    // formats and styles the translator took for words ('Opus' -> 'obra', 'Daycore' -> 'núcleo diurno')
+    'opus', 'nightcore', 'daycore']);
   const UNIT = /^[\d\s.,:;/+\-–—×x%°]*(ms|s|sec|min|h|x|db|hz|khz|px|kb|mb|gb|kbps|bpm|fps|lufs)?[\d\s.,:;/+\-–—×x%°]*$/i;
 
   const normLang = (code) => (LANG_RE.test(String(code || '')) ? String(code) : 'en');
@@ -333,14 +335,18 @@
   }
 
   // everything this device translated before, in one go: the server's copy of the disk cache
+  // resolves how many words it brought or changed
   async function loadAll(forLang) {
-    if (!base) return;
+    let changed = 0;
+    if (!base) return changed;
     try {
       const res = await fetch(`${base}/api/i18n-batch?target=${encodeURIComponent(forLang)}`);
       const data = await res.json();
-      if (forLang !== lang || !data || !data.success || !data.translations || typeof data.translations !== 'object') return;
-      for (const [src, tr] of Object.entries(data.translations)) if (!dict.has(src)) learn(src, tr);
+      if (forLang !== lang || !data || !data.success || !data.translations || typeof data.translations !== 'object') return changed;
+      // the server's word wins over the copy kept in localStorage: it may have a reviewed translation since
+      for (const [src, tr] of Object.entries(data.translations)) if (dict.get(src) !== tr && learn(src, tr)) changed++;
     } catch (e) {}
+    return changed;
   }
 
   let snapTimer = null;
@@ -398,9 +404,7 @@
     if (!url || base) return;
     base = String(url).replace(/\/+$/, '');
     if (lang === 'en') return;
-    const before = dict.size;
-    await loadAll(lang);
-    if (dict.size !== before) { refresh(false); saveSnapSoon(); }
+    if (await loadAll(lang)) { refresh(false); saveSnapSoon(); }
     for (const k of known) if (!dict.has(norm(k))) lookup(norm(k));
     // what the first pass found missing, minus what the server had
     for (const s of [...queue]) if (dict.has(s)) queue.delete(s);
